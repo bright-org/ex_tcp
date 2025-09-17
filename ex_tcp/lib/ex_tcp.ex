@@ -53,10 +53,7 @@ defmodule ExTCP do
         ack = s_isn + 1
 
         send_ack(tx, src_ip, src_port, dst_ip, dst_port, seq, ack)
-        |> dbg()
-
         send_psh_ack(tx, src_ip, src_port, dst_ip, dst_port, seq, ack, "hello\n")
-        |> dbg()
     end
   end
 
