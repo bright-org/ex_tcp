@@ -16,8 +16,6 @@ $ docker compose up -d --build
 
 ex_tcp/livebook/client.livemdを開いて実行します。
 
-## OS直で
-
 ## 共通
 
 OSが勝手にRSTで処理しないようにフィルターを設定します。
