@@ -21,7 +21,7 @@ services:
       - LIVEBOOK_PORT=8080
     volumes:
       - ./ex_tcp:/home/ex_tcp
-    # user: "${host_uid:-1000}:${host_gid:-1000}"
+    user: "${host_uid:-1000}:${host_gid:-1000}"
     working_dir: /home/ex_tcp/livebook
     restart: unless-stopped
 
