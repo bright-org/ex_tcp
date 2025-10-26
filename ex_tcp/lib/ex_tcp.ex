@@ -10,10 +10,7 @@ defmodule ExTCP do
   必要権限: root もしくは CAP_NET_RAW
   """
 
-  ## ===== 16bit 1の補数チェックサム =====
   import Bitwise
-
-  ## ===== 公開 API =====
 
   @ip {127, 0, 0, 1}
   @src_port 40000
