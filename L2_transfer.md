@@ -1,10 +1,28 @@
+chmod +x setup_nic.sh
 sudo bash setup_nic.sh
+cd ex_tcp
 
+ターミナルを２つ用意します
+
+```
 iex -S mix
-Ether.Port.start_link []
-Ether.Tx.handshake
+Ether.Host.start_link []
+```
 
-$ sudo tcpdump -i tap1 -nn -vvv ip and tcp
+```
+iex -S mix
+Ether.Client.start_link []
+Ether.Client.send_frame "HELLO\n"
+```
+
+ホストに下記が出力されます
+
+```
+FROM LOCAL NIC
+PSH_ACK
+HELLO
+```
+
 
 Linux bridge はデフォルトで
 net.bridge.bridge-nf-call-iptables=1

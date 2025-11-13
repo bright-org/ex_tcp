@@ -1,42 +1,36 @@
-#!/usr/bin/env bash
-set -e
+#!/bin/sh
+set -eu
 
-echo "[+] Cleaning old interfaces (if any)..."
-for dev in tap0 tap1 br0; do
-  ip link set $dev down 2>/dev/null || true
-  ip link del $dev 2>/dev/null || true
-done
+# すでに存在していた場合は消しておく（コンテナ再起動時のエラー防止）
+if ip link show tap0 >/dev/null 2>&1; then
+  ip link del tap0
+fi
 
-echo "[+] Creating TAP devices..."
-ip tuntap add dev tap0 mode tap
-ip tuntap add dev tap1 mode tap
+if ip link show tap1 >/dev/null 2>&1; then
+  ip link del tap1
+fi
 
-echo "[+] Creating single bridge (br0)..."
-ip link add name br0 type bridge
+if ip link show br0 >/dev/null 2>&1; then
+  ip link del br0
+fi
 
-echo "[+] Attaching TAP devices to bridge..."
+# TAP デバイス作成（IPは振らない）
+ip tuntap add tap0 mode tap
+ip tuntap add tap1 mode tap
+
+# ブリッジ作成
+ip link add br0 type bridge
+
+# TAP をブリッジにぶら下げる
 ip link set tap0 master br0
 ip link set tap1 master br0
 
-echo "[+] Bringing interfaces up..."
-ip link set tap0 up
-ip link set tap1 up
-ip link set br0 up
+# 有効化（UP）
+ip link set dev tap0 up
+ip link set dev tap1 up
+ip link set dev br0 up
 
-echo
-echo "✅ Setup complete!"
-echo "   tap0 ↔ br0 ↔ tap1"
-echo
-echo "Interface summary:"
-bridge link show
-
-echo "[+] Disabling bridge netfilter (for TAP forwarding)..."
-sysctl -w net.bridge.bridge-nf-call-iptables=0 >/dev/null
-sysctl -w net.bridge.bridge-nf-call-ip6tables=0 >/dev/null
-sysctl -w net.bridge.bridge-nf-call-arptables=0 >/dev/null
-
-bridge link set dev tap0 flood on
-bridge link set dev tap1 flood on
-
-sudo bridge fdb add 02:00:00:00:01:BB dev tap0 master static
-sudo bridge fdb add 02:00:00:00:01:AA dev tap1 master static
+# 確認用（ログが邪魔なら削除して構いません）
+ip link show tap0
+ip link show tap1
+ip link show br0

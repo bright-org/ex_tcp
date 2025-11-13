@@ -13,7 +13,6 @@ defmodule Ether.Transmitter do
       |> Ipv4.wrap(@tap0, @tap1)
 
     frame = hoge(packet)
-     |> dbg(limit: :infinity)
 
     Client.send_frame(frame)
   end

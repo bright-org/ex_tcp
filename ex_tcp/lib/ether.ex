@@ -28,9 +28,6 @@ defmodule Ether do
           |> Frame.swap_addrs()
           |> Frame.build(packet)
 
-        dbg(frame, limit: :infinity)
-        # :timer.sleep(1)
-
         %{frame: frame, seq: tcp.seq}
       end
     else

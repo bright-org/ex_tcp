@@ -5,7 +5,6 @@ defmodule Ether.Client do
   alias Ether.Ethernet.Frame
 
   @python "python3"
-  @tap_io "tap_port.py"
   @tap "tap0"
 
   @tap0 {10, 0, 0, 1}
@@ -25,7 +24,26 @@ defmodule Ether.Client do
   def send_frame(data), do: GenServer.cast(__MODULE__, {:send, data})
 
   def init(_) do
-    port = Port.open({:spawn, "#{@python} #{@tap_io} #{@tap}"}, [:binary, :exit_status])
+    python =
+      System.find_executable(@python) ||
+        raise "python executable #{@python} not found in PATH"
+
+    tap_port =
+      :ex_tcp
+      |> :code.priv_dir()
+      |> to_string()
+      |> Path.join("tap_port.py")
+
+    port =
+      Port.open(
+        {:spawn_executable, String.to_charlist(python)},
+        [
+          :binary,
+          :exit_status,
+          args: [String.to_charlist(tap_port), @tap]
+        ]
+      )
+
     iss = :rand.uniform(0x7FFFFFFF)
 
     {:ok, %{port: port, iss: iss, irs: nil, snd_nxt: iss + 1, rcv_nxt: 0}}
@@ -48,8 +66,8 @@ defmodule Ether.Client do
       TCP.psh_ack(@tap0_port, @tap1_port, snd_nxt, rcv_nxt)
       |> Ipv4.wrap(@tap0, @tap1, payload)
 
-    frame = Frame.build({@dst_mac, @src_mac}, packet)
-      |> dbg(limit: :infinity)
+    frame =
+      Frame.build({@dst_mac, @src_mac}, packet)
 
     Port.command(port, frame)
     {:noreply, state}
@@ -67,5 +85,11 @@ defmodule Ether.Client do
         IO.puts("[CLIENT REPLY]")
         {:noreply, %{state | irs: remote_seq}}
     end
+  end
+
+  def handle_info({port, {:exit_status, status}}, %{port: port} = state) do
+    require Logger
+    Logger.error("Port #{inspect(port)} exited with status #{status}")
+    {:stop, {:port_exit, status}, state}
   end
 end

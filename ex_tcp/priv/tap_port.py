@@ -9,7 +9,6 @@ def open_tap(name="tap0"):
     fd = os.open("/dev/net/tun", os.O_RDWR)
     ifr = struct.pack("16sH", name.encode(), IFF_TAP | IFF_NO_PI)
     fcntl.ioctl(fd, TUNSETIFF, ifr)
-    print(f"[+] TAP {name} ready", file=sys.stderr)
     return fd
 
 def main():

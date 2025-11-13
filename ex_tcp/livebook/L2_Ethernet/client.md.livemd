@@ -1,0 +1,17 @@
+# L2 Client
+
+```elixir
+Mix.install([
+  {:ex_tcp, path: System.get_env("EX_TCP_ROOT")}
+])
+```
+
+## Section
+
+```elixir
+Ether.Client.start_link([])
+```
+
+```elixir
+Ether.Client.send_frame "HELLO\n"
+```

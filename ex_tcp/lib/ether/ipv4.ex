@@ -5,6 +5,8 @@ defmodule Ether.Ipv4 do
   alias Ether.{Ipv4, TCP}
   # defstruct src_ip
 
+  require Logger
+
   def wrap(nil, _, _), do: nil
 
   def wrap(tcp_wo_csum, src_ip, dst_ip, payload \\ <<>>) do
@@ -33,7 +35,11 @@ defmodule Ether.Ipv4 do
   end
 
   def parse!(packet) do
-    case parse(packet) do
+    Logger.debug("IPv4.parse! packet (hex): #{Base.encode16(packet)}")
+
+    packet
+    |> parse()
+    |> case do
       {:ok, decode} -> decode
       :error -> raise "Ipv4 parse failed"
     end
