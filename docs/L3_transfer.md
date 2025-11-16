@@ -1,13 +1,5 @@
-# 概要
 
-Elixirによる:gen_tcpや:inetに依存しないTCP/IPスタック実装
-Erlangの資産は:socketを利用します。
-
-# Getting Stated
-
-## Docker & Livebook
-
-本ディレクリにあるdocker-compose.ymlを利用してください。
+(WIP)
 
 ```
 $ chmod +x fw-entrypoint.sh
