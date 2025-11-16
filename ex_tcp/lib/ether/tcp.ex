@@ -24,6 +24,7 @@ defmodule Ether.TCP do
         <<sp::16, dp::16, seq::32, ack::32, doff_flags, flags, _wnd::16, _::16, _::16,
           rest::binary>>
       ) do
+        # TODO: hlenに応じたoffset処理
     %{sp: sp, dp: dp, seq: seq, ack: ack, hlen: (doff_flags >>> 4) * 4, flags: flags, rest: rest}
   end
 

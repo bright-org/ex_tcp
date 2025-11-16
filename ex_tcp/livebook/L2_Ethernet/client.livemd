@@ -8,6 +8,8 @@ Mix.install([
 
 ## Section
 
+Open an exec [host](./host.livemd).
+
 ```elixir
 Ether.Client.start_link([])
 ```

@@ -28,7 +28,7 @@ defmodule Ether do
           |> Frame.swap_addrs()
           |> Frame.build(packet)
 
-        %{frame: frame, seq: tcp.seq}
+        %{frame: frame, seq: tcp.seq, payload: tcp.rest}
       end
     else
       nil

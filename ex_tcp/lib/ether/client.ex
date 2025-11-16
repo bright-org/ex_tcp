@@ -23,6 +23,15 @@ defmodule Ether.Client do
   # 3 way handshake後の任意メッセージ送信
   def send_frame(data), do: GenServer.cast(__MODULE__, {:send, data})
 
+  def register_consumer(pid \\ self()),
+    do: GenServer.cast(__MODULE__, {:register_consumer, pid})
+
+  defp maybe_deliver_payload(nil, _data), do: :ok
+
+  defp maybe_deliver_payload(consumer, data) do
+    send(consumer, {:ether_payload, data})
+  end
+
   def init(_) do
     python =
       System.find_executable(@python) ||
@@ -46,7 +55,11 @@ defmodule Ether.Client do
 
     iss = :rand.uniform(0x7FFFFFFF)
 
-    {:ok, %{port: port, iss: iss, irs: nil, snd_nxt: iss + 1, rcv_nxt: 0}}
+    {:ok, %{port: port, iss: iss, irs: nil, snd_nxt: iss + 1, rcv_nxt: 0, consumer: nil}}
+  end
+
+  def handle_cast({:register_consumer, pid}, state) do
+    {:noreply, %{state | consumer: pid}}
   end
 
   def handle_cast(:send_syn, %{port: port, iss: iss} = state) do
@@ -80,9 +93,10 @@ defmodule Ether.Client do
         IO.puts("[DO NOTHING]")
         {:noreply, state}
 
-      %{frame: frame, seq: remote_seq} ->
+      %{frame: frame, seq: remote_seq, payload: app_data} ->
         Port.command(state.port, frame)
         IO.puts("[CLIENT REPLY]")
+        maybe_deliver_payload(state.consumer, app_data)
         {:noreply, %{state | irs: remote_seq}}
     end
   end
