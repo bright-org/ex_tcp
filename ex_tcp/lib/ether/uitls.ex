@@ -1,8 +1,15 @@
 defmodule Ether.Utils do
   import Bitwise
 
-  def mac_bin(str),
-    do: str |> String.split(":") |> Enum.map(&String.to_integer(&1, 16)) |> :binary.list_to_bin()
+  def mac_bin(<<_::48>> = mac), do: mac
+
+  # "AA:BB:CC:DD:EE:FF" → <<0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF
+  def mac_bin(mac_str) when is_binary(mac_str) do
+    mac_str
+    |> String.split(":")
+    |> Enum.map(&String.to_integer(&1, 16))
+    |> :binary.list_to_bin()
+  end
 
   def csum16(bin) when is_binary(bin) do
     # 16bit単位で加算（奇数長なら最後の1バイトを上位に詰めて加算）

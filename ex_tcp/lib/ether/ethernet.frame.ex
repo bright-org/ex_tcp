@@ -1,4 +1,6 @@
 defmodule Ether.Ethernet.Frame do
+  import Ether.Utils
+
   @preamble <<0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0xD5>>
 
   @ethertype_ipv4 0x0800
@@ -60,8 +62,8 @@ defmodule Ether.Ethernet.Frame do
   end
 
   def build(%__MODULE__{} = frame, packet) do
-    dst_bin = mac_to_bin(frame.dst)
-    src_bin = mac_to_bin(frame.src)
+    dst_bin = mac_bin(frame.dst)
+    src_bin = mac_bin(frame.src)
     type_int = parse_type(frame.type)
 
     <<
@@ -74,7 +76,6 @@ defmodule Ether.Ethernet.Frame do
   end
 
   def build({dst_mac_str, src_mac_str}, packet, opts \\ []) do
-
     dst_mac = Ether.Utils.mac_bin(dst_mac_str)
     # 自ノードのMAC
     src_mac = Ether.Utils.mac_bin(src_mac_str)
@@ -104,14 +105,6 @@ defmodule Ether.Ethernet.Frame do
       ":",
       &(Integer.to_string(&1, 16) |> String.pad_leading(2, "0"))
     )
-  end
-
-  # "AA:BB:CC:DD:EE:FF" → <<0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF
-  defp mac_to_bin(mac_str) when is_binary(mac_str) do
-    mac_str
-    |> String.split(":")
-    |> Enum.map(&String.to_integer(&1, 16))
-    |> :binary.list_to_bin()
   end
 
   # "0x0800" or 0x0800 → 0x0800

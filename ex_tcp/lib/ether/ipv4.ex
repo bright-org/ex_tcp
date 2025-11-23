@@ -7,8 +7,19 @@ defmodule Ether.Ipv4 do
 
   require Logger
 
+  @type ipv4 :: {0..255, 0..255, 0..255, 0..255}
+
+  @doc """
+  与えられたTCPパケットに対して、IPv4バイナリを付与する
+  """
   def wrap(nil, _, _), do: nil
 
+  @spec wrap(
+          tcp_wo_csum :: binary(),
+          src_ip :: ipv4(),
+          dst_ip :: ipv4(),
+          payload :: binary()
+        ) :: binary()
   def wrap(tcp_wo_csum, src_ip, dst_ip, payload \\ <<>>) do
     tcp_csum = TCP.checksum(src_ip, dst_ip, tcp_wo_csum <> payload)
 
