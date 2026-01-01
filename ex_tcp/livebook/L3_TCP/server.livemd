@@ -1,6 +1,6 @@
-# sever
+# sever(:gen_tcp)
 
-## Section
+## L3ホストを立てます
 
 ```elixir
 ip = {127, 0, 0, 1}
@@ -16,3 +16,5 @@ IO.puts("[srv] recv: #{inspect(data)}")
 :gen_tcp.send(sock, "pong")
 :gen_tcp.close(sock)
 ```
+
+ホストを起動したら、[クライアント](./clinent.livemd)の最後まで実行します。
