@@ -81,7 +81,7 @@ defmodule ExTCP do
       |> case do
         {:ok, bin} ->
           bin
-          |> Ipv4.parse()
+          |> Ether.Ipv4.parse()
           |> case do
             {:ok, {^dst_ip, ^src_ip, _proto, tcp_bin}} ->
               tcp_bin

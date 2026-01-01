@@ -1,15 +1,12 @@
+# 環境設定
+
+## Livebook & Docker
 
 (WIP)
 
-```
-$ chmod +x fw-entrypoint.sh
-$ docker compose up -d --build
-```
+## ホストOS（no docker）
 
-ex_tcp/livebook/client.livemdを開いて実行します。
-
-## 共通
-
+### 共通
 OSが勝手にRSTで処理しないようにフィルターを設定します。
 
 ```
@@ -18,7 +15,7 @@ sudo iptables -I OUTPUT 1 -o lo -p tcp --tcp-flags RST RST \
   -d 127.0.0.1 --dport 40001 -j DROP
 ```
 
-## WSL
+### WSL2(Ubuntu 2x)
 
 beam.smpにcap_net_rawを権限を付与する必要があります。
 
@@ -30,9 +27,13 @@ $ sudo setcap cap_net_raw+ep $(which beam.smp)
 
 # Getting Start
 
-TCPクライアントのみを実装しているため、ホストを用意します。
+## Livebook & docker
 
-## TCPホストを用意
+(WIP)
+
+## ホストOS（no Docker）
+
+### TCPホストを用意
 
 ```bash
 nc -lv 127.0.0.1 40001
@@ -45,15 +46,14 @@ Elixirで完結させたい場合は下記で行います。
 elixir recv.exs
 ```
 
-
-## TCPクライアント
+### TCPクライアント起動
 
 ```bash
 iex -S mix
 iex> ExTCP.connect
 ```
 
-## Expect
+### Expect
 
 ```
 $ nc -lv 127.0.0.1 40001
@@ -63,7 +63,7 @@ hello
 ```
 
 ```
-iex(1)> ExTCP.probe_ip
+iex(1)> ExTCP.connect
 TCP 40000->40001 flags=0x2
 TCP 40001->40000 flags=0x12
 :ok

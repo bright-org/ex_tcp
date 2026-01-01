@@ -1,15 +1,17 @@
-# Client
+# L3クライアント動作チェック
 
 ```elixir
 Mix.install([
-  {:ex_tcp, path: Path.join(__DIR__, "..")}
+  {:ex_tcp, path: System.get_env("EX_TCP_ROOT")}
 ])
 ```
 
-## Section
+## L3ホスト起動
 
 先にホストを起動します。  
 [ホスト](./server.livemd)
+
+## L3クライアント起動
 
 ```elixir
 ExTCP.connect
