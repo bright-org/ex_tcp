@@ -42,6 +42,7 @@ defmodule ExTCP do
     receive do
       {:tcp, _sock, data} ->
         state = on_data(data, state)
+
         if state.phase == :done do
           :gen_tcp.close(state.socket)
           {:ok, state.body}
@@ -96,8 +97,8 @@ defmodule ExTCP do
   end
 
   @doc """
-  任意の IPv4 宛に 3 way handshakeしてデータ送信する（Raw ソケット。loop には connect_stream を使う）
-  handshake は connect_raw に委譲する。
+  Raw ソケットで 3 way handshake のみ行い、connect_raw の結果をそのまま返す。
+  送信・受信・クローズは呼び出し側で send_psh_ack / wait_segment / receive_all_response_packets / close_connection を組み合わせて行う。
   """
   def connect(
         dst_ip \\ @ip,
@@ -107,50 +108,36 @@ defmodule ExTCP do
         timeout_ms \\ 100_000
       ) do
     opts = [src_ip: src_ip, src_port: src_port, timeout_ms: timeout_ms]
-
-    case connect_raw(dst_ip, dst_port, opts) do
-      {:ok, sock, seq, ack, flow} ->
-        {src_ip, _src_port, dst_ip, _dst_port} = flow
-
-        IO.puts("HTTP request")
-        req = "GET / HTTP/1.0\r\n\r\n"
-        send_psh_ack(sock, src_ip, elem(flow, 1), dst_ip, elem(flow, 3), seq, ack, req)
-
-        seq = seq + byte_size(req)
-        deadline = System.monotonic_time(:millisecond) + timeout_ms
-
-        case wait_segment(sock, @ack, flow, deadline) do
-          {:ok, ack_pkt} ->
-            IO.puts("Receiving HTTP response")
-            {final_ack, _body} = receive_all_response_packets(sock, flow, deadline, seq, ack_pkt.seq)
-
-            send_ack(sock, src_ip, elem(flow, 1), dst_ip, elem(flow, 3), seq, final_ack)
-
-            close_connection(sock, src_ip, elem(flow, 1), dst_ip, elem(flow, 3), seq, final_ack, flow)
-
-          {:error, reason} ->
-            IO.puts("ACK wait error: #{inspect(reason)}")
-            :socket.close(sock)
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    connect_raw(dst_ip, dst_port, opts)
   end
 
   @doc """
   PSH+ACK / FIN+PSH+ACK をすべて受信し、ペイロードを連結する。
   戻り値: `{final_ack, body_binary}`。
   """
-  def receive_all_response_packets(sock, {src_ip, src_port, dst_ip, dst_port} = flow, deadline_ms, my_seq, server_seq, acc \\ <<>>) do
+  def receive_all_response_packets(
+        sock,
+        {src_ip, src_port, dst_ip, dst_port} = flow,
+        deadline_ms,
+        my_seq,
+        server_seq,
+        acc \\ <<>>
+      ) do
     short_deadline = System.monotonic_time(:millisecond) + 1000
 
     case wait_segment(sock, @psh_ack, flow, short_deadline) do
       {:ok, pkt} ->
         new_server_seq = pkt.seq + byte_size(pkt.payload)
         send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, new_server_seq)
-        receive_all_response_packets(sock, flow, deadline_ms, my_seq, new_server_seq, acc <> pkt.payload)
+
+        receive_all_response_packets(
+          sock,
+          flow,
+          deadline_ms,
+          my_seq,
+          new_server_seq,
+          acc <> pkt.payload
+        )
 
       {:error, _} ->
         case wait_segment(sock, @fin_psh_ack, flow, short_deadline) do
@@ -184,10 +171,15 @@ defmodule ExTCP do
         # 先に ACK が来た → 続けて FIN 系を待つ
         case wait_segment_one_of(sock, [@fin_psh_ack, @fin_ack, @fin], flow, short_fin_deadline) do
           {:ok, finpkt, flags} ->
-            ack_num = if (flags &&& @psh) != 0, do: finpkt.seq + byte_size(finpkt.payload), else: finpkt.seq + 1
+            ack_num =
+              if (flags &&& @psh) != 0,
+                do: finpkt.seq + byte_size(finpkt.payload),
+                else: finpkt.seq + 1
+
             send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack_num)
             :socket.close(sock)
             :ok
+
           {:error, reason} ->
             IO.puts("FIN wait error: #{inspect(reason)} - closing socket")
             :socket.close(sock)
@@ -196,7 +188,11 @@ defmodule ExTCP do
 
       {:ok, finpkt, flags} when (flags &&& @fin) != 0 ->
         # 先に FIN 系が来た → ACK を返して終了（ACK 待ちは省略可能）
-        ack_num = if (flags &&& @psh) != 0, do: finpkt.seq + byte_size(finpkt.payload), else: finpkt.seq + 1
+        ack_num =
+          if (flags &&& @psh) != 0,
+            do: finpkt.seq + byte_size(finpkt.payload),
+            else: finpkt.seq + 1
+
         send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack_num)
         :socket.close(sock)
         :ok
@@ -211,6 +207,7 @@ defmodule ExTCP do
   # 指定したフラグのいずれかに一致するセグメントが来るまで待つ。戻り値: {:ok, pkt, matched_flags} | {:error, reason}
   defp wait_segment_one_of(sock, acceptable_flags, {src_ip, sp, dst_ip, dp} = flow, deadline_ms) do
     now = System.monotonic_time(:millisecond)
+
     if now >= deadline_ms do
       {:error, :timeout}
     else
@@ -226,7 +223,10 @@ defmodule ExTCP do
               |> case do
                 %{sp: spv, dp: dpv, flags: fl, payload: _payload} = pkt ->
                   if spv == dp and dpv == sp and (fl &&& @rst) == @rst do
-                    IO.puts("TCP #{spv}->#{dpv} flags=0x#{Integer.to_string(fl, 16)} - RST received: connection reset")
+                    IO.puts(
+                      "TCP #{spv}->#{dpv} flags=0x#{Integer.to_string(fl, 16)} - RST received: connection reset"
+                    )
+
                     {:error, :connection_reset}
                   else
                     if spv == dp and dpv == sp and fl in acceptable_flags do
@@ -236,25 +236,39 @@ defmodule ExTCP do
                       wait_segment_one_of(sock, acceptable_flags, flow, deadline_ms)
                     end
                   end
+
                 %{sp: ^dp, dp: ^sp} ->
                   wait_segment_one_of(sock, acceptable_flags, flow, deadline_ms)
+
                 _ ->
                   wait_segment_one_of(sock, acceptable_flags, flow, deadline_ms)
               end
+
             {:ok, _} ->
               wait_segment_one_of(sock, acceptable_flags, flow, deadline_ms)
+
             :error ->
               {:error, :parse_error}
           end
+
         {:select, _} ->
           {:error, :timeout}
+
         other ->
           {:error, other}
       end
     end
   end
 
-  defp receive_response_loop(sock, {src_ip, src_port, dst_ip, dst_port} = flow, deadline_ms, acc_data, my_seq, expected_seq, _original_deadline) do
+  defp receive_response_loop(
+         sock,
+         {src_ip, src_port, dst_ip, dst_port} = flow,
+         deadline_ms,
+         acc_data,
+         my_seq,
+         expected_seq,
+         _original_deadline
+       ) do
     now = System.monotonic_time(:millisecond)
 
     if now >= deadline_ms do
@@ -273,7 +287,15 @@ defmodule ExTCP do
 
           send_ack(sock, src_ip, src_port, dst_ip, dst_port, new_seq, new_expected_seq)
 
-          receive_response_loop(sock, flow, deadline_ms, new_data, new_seq, new_expected_seq, deadline_ms)
+          receive_response_loop(
+            sock,
+            flow,
+            deadline_ms,
+            new_data,
+            new_seq,
+            new_expected_seq,
+            deadline_ms
+          )
 
         {:error, :connection_reset} ->
           IO.puts("Error: connection reset")
@@ -284,8 +306,10 @@ defmodule ExTCP do
             {:error, :connection_reset} ->
               IO.puts("Error: connection reset")
               {:error, :connection_reset}
+
             {:ok, ack_pkt} ->
               short_deadline = System.monotonic_time(:millisecond) + 1000
+
               case wait_segment(sock, @psh_ack, flow, short_deadline) do
                 {:ok, pkt} ->
                   payload = pkt.payload
@@ -295,12 +319,23 @@ defmodule ExTCP do
                   IO.puts(Base.encode16(payload, case: :lower))
                   IO.puts("")
                   send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, new_expected_seq)
-                  receive_response_loop(sock, flow, deadline_ms, new_data, my_seq, new_expected_seq, deadline_ms)
+
+                  receive_response_loop(
+                    sock,
+                    flow,
+                    deadline_ms,
+                    new_data,
+                    my_seq,
+                    new_expected_seq,
+                    deadline_ms
+                  )
+
                 {:error, _} ->
                   if byte_size(acc_data) > 0 do
                     IO.puts("Received full data (hex dump):")
                     IO.puts(Base.encode16(acc_data, case: :lower))
                   end
+
                   {:ok, acc_data}
               end
 
@@ -309,12 +344,12 @@ defmodule ExTCP do
                 IO.puts("Received full data (hex dump):")
                 IO.puts(Base.encode16(acc_data, case: :lower))
               end
+
               {:ok, acc_data}
           end
       end
     end
   end
-
 
   @doc """
   送信用ヘルパ。:socket.open(:inet, :raw, 6) ＋ IP_HDRINCL=true 済みのtxに送る。
@@ -360,7 +395,10 @@ defmodule ExTCP do
                 %{sp: spv, dp: dpv, flags: fl, seq: rseq, payload: payload} = pkt ->
                   # RSTフラグが来た場合は接続がリセットされた
                   if spv == dp and dpv == sp and (fl &&& @rst) == @rst do
-                    IO.puts("TCP #{spv}->#{dpv} flags=0x#{Integer.to_string(fl, 16)} - RST received: connection reset")
+                    IO.puts(
+                      "TCP #{spv}->#{dpv} flags=0x#{Integer.to_string(fl, 16)} - RST received: connection reset"
+                    )
+
                     {:error, :connection_reset}
                   else
                     if spv == dp and dpv == sp and fl == flags do
@@ -465,11 +503,14 @@ defmodule ExTCP do
     doff = 5
 
     <<
-      src_port::16, dst_port::16,
+      src_port::16,
+      dst_port::16,
       seq::32,
       ack::32,
-      (doff <<< 12) + flags::16, window::16,
-      0::16, 0::16
+      (doff <<< 12) + flags::16,
+      window::16,
+      0::16,
+      0::16
     >>
   end
 
