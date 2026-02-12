@@ -82,7 +82,39 @@ defmodule ExTCP do
   end
 
   @doc """
+  Raw ソケットで 3 way handshake のみ行い、送信に必要な情報を返す。
+  `send_psh_ack` でリクエスト送信後、`wait_segment(sock, 0x10, flow, deadline)` → `receive_all_response_packets` → `close_connection` で受信・クローズする。
+  """
+  def connect_raw(dst_ip, dst_port, opts \\ []) do
+    src_ip = Keyword.get(opts, :src_ip, @ip)
+    src_port = Keyword.get(opts, :src_port, @src_port)
+    timeout_ms = Keyword.get(opts, :timeout_ms, 100_000)
+
+    {:ok, sock} = :socket.open(:inet, :raw, :tcp)
+    :ok = :socket.setopt(sock, :ip, :hdrincl, true)
+
+    iss = :rand.uniform(0x7FFFFFFF)
+    send_syn(sock, src_ip, src_port, dst_ip, dst_port, iss)
+
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    flow = {src_ip, src_port, dst_ip, dst_port}
+
+    case wait_segment(sock, @syn_ack, flow, deadline) do
+      {:ok, pkt} ->
+        seq = iss + 1
+        ack = pkt.seq + 1
+        send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack)
+        {:ok, sock, seq, ack, flow}
+
+      {:error, reason} ->
+        :socket.close(sock)
+        {:error, reason}
+    end
+  end
+
+  @doc """
   任意の IPv4 宛に 3 way handshakeしてデータ送信する（Raw ソケット。loop には connect_stream を使う）
+  handshake は connect_raw に委譲する。
   """
   def connect(
         dst_ip \\ @ip,
@@ -91,146 +123,151 @@ defmodule ExTCP do
         src_port \\ @src_port,
         timeout_ms \\ 100_000
       ) do
-    {:ok, sock} = :socket.open(:inet, :raw, :tcp)
-    :ok = :socket.setopt(sock, :ip, :hdrincl, true)
+    opts = [src_ip: src_ip, src_port: src_port, timeout_ms: timeout_ms]
 
-    # Initial Send Sequence
-    iss = :rand.uniform(0x7FFFFFFF)
+    case connect_raw(dst_ip, dst_port, opts) do
+      {:ok, sock, seq, ack, flow} ->
+        {src_ip, _src_port, dst_ip, _dst_port} = flow
 
-    send_syn(sock, src_ip, src_port, dst_ip, dst_port, iss)
+        IO.puts("HTTP request")
+        req = "GET / HTTP/1.0\r\n\r\n"
+        send_psh_ack(sock, src_ip, elem(flow, 1), dst_ip, elem(flow, 3), seq, ack, req)
 
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
+        seq = seq + byte_size(req)
+        deadline = System.monotonic_time(:millisecond) + timeout_ms
 
-    flow = {src_ip, src_port, dst_ip, dst_port}
-    {:ok, pkt} = wait_segment(sock, @syn_ack, flow, deadline)
+        case wait_segment(sock, @ack, flow, deadline) do
+          {:ok, ack_pkt} ->
+            IO.puts("Receiving HTTP response")
+            {final_ack, _body} = receive_all_response_packets(sock, flow, deadline, seq, ack_pkt.seq)
 
-    seq = iss + 1
-    ack = pkt.seq + 1
+            send_ack(sock, src_ip, elem(flow, 1), dst_ip, elem(flow, 3), seq, final_ack)
 
-    send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack)
+            close_connection(sock, src_ip, elem(flow, 1), dst_ip, elem(flow, 3), seq, final_ack, flow)
 
-    IO.puts("Done 3 way-handshake")
-
-    IO.puts("HTTP request")
-    req = "GET / HTTP/1.0\r\n\r\n"
-    send_psh_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack, req)
-
-    seq = seq + byte_size(req)
-
-    case wait_segment(sock, @ack, flow, deadline) do
-      {:ok, ack_pkt} ->
-        IO.puts("Receiving HTTP response")
-        File.write!("out", "")
-        final_ack = receive_all_response_packets(sock, flow, deadline, seq, ack_pkt.seq)
-
-        send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, final_ack)
-
-        close_connection(sock, src_ip, src_port, dst_ip, dst_port, seq, final_ack, flow)
+          {:error, reason} ->
+            IO.puts("ACK wait error: #{inspect(reason)}")
+            :socket.close(sock)
+            {:error, reason}
+        end
 
       {:error, reason} ->
-        IO.puts("ACK wait error: #{inspect(reason)}")
-        :socket.close(sock)
         {:error, reason}
     end
   end
 
-  defp receive_all_response_packets(sock, {src_ip, src_port, dst_ip, dst_port} = flow, deadline_ms, my_seq, server_seq) do
+  @doc """
+  PSH+ACK / FIN+PSH+ACK をすべて受信し、ペイロードを連結する。
+  戻り値: `{final_ack, body_binary}`。
+  """
+  def receive_all_response_packets(sock, {src_ip, src_port, dst_ip, dst_port} = flow, deadline_ms, my_seq, server_seq, acc \\ <<>>) do
     short_deadline = System.monotonic_time(:millisecond) + 1000
 
     case wait_segment(sock, @psh_ack, flow, short_deadline) do
       {:ok, pkt} ->
-        IO.puts("Received payload (hex dump):")
-        File.write!("out", Base.encode16(pkt.payload, case: :lower) <> "\n", [:append])
-        IO.puts("")
-
         new_server_seq = pkt.seq + byte_size(pkt.payload)
         send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, new_server_seq)
-        receive_all_response_packets(sock, flow, deadline_ms, my_seq, new_server_seq)
+        receive_all_response_packets(sock, flow, deadline_ms, my_seq, new_server_seq, acc <> pkt.payload)
 
       {:error, _} ->
         case wait_segment(sock, @fin_psh_ack, flow, short_deadline) do
           {:ok, pkt} ->
-            IO.puts("Received payload (hex dump):")
-            File.write!("out", Base.encode16(pkt.payload, case: :lower) <> "\n", [:append])
-            IO.puts("")
-
             new_server_seq = pkt.seq + byte_size(pkt.payload)
             send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, new_server_seq)
-            new_server_seq
+            {new_server_seq, acc <> pkt.payload}
 
           {:error, _} ->
-            server_seq
+            {server_seq, acc}
         end
     end
   end
 
-  defp close_connection(sock, src_ip, src_port, dst_ip, dst_port, seq, ack, flow) do
+  @doc """
+  FIN+ACK を送り、サーバーの ACK/FIN を受信して接続を閉じる。
+  サーバーは ACK と FIN(+PSH+ACK) の到着順が入れ替わることがあるため、
+  まず「ACK または FIN 系」のいずれか1つを受け取り、それに応じて処理する。
+  """
+  def close_connection(sock, src_ip, src_port, dst_ip, dst_port, seq, ack, flow) do
     IO.puts("Send FIN+ACK")
     send_fin_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack)
     seq = seq + 1
 
-    IO.puts("Waiting for server ACK (confirm FIN+ACK)")
+    IO.puts("Waiting for server ACK or FIN (confirm FIN+ACK)")
     short_fin_deadline = System.monotonic_time(:millisecond) + 2000
 
-    case wait_segment(sock, @ack, flow, short_fin_deadline) do
-      {:ok, ack_pkt} ->
-        case wait_segment(sock, @fin_psh_ack, flow, short_fin_deadline) do
-          {:ok, finpkt} ->
-            ack = finpkt.seq + byte_size(finpkt.payload)
-            send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack)
+    # ACK(0x10) / FIN+PSH+ACK(0x19) / FIN+ACK(0x11) / FIN(0x01) のいずれか1つを受け取る（到着順でブロックしない）
+    case wait_segment_one_of(sock, [@ack, @fin_psh_ack, @fin_ack, @fin], flow, short_fin_deadline) do
+      {:ok, pkt, @ack} ->
+        # 先に ACK が来た → 続けて FIN 系を待つ
+        case wait_segment_one_of(sock, [@fin_psh_ack, @fin_ack, @fin], flow, short_fin_deadline) do
+          {:ok, finpkt, flags} ->
+            ack_num = if (flags &&& @psh) != 0, do: finpkt.seq + byte_size(finpkt.payload), else: finpkt.seq + 1
+            send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack_num)
             :socket.close(sock)
             :ok
-
-          {:error, _} ->
-            case wait_segment(sock, @fin_ack, flow, short_fin_deadline) do
-              {:ok, finpkt} ->
-                ack = finpkt.seq + 1
-                send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack)
-                :socket.close(sock)
-                :ok
-
-              {:error, _} ->
-                case wait_segment(sock, @fin, flow, short_fin_deadline) do
-                  {:ok, finpkt} ->
-                    ack = finpkt.seq + 1
-                    send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack)
-                    :socket.close(sock)
-                    :ok
-
-                  {:error, reason} ->
-                    IO.puts("FIN wait error: #{inspect(reason)} - closing socket")
-                    :socket.close(sock)
-                    :ok
-                end
-            end
-        end
-
-      {:error, _} ->
-        IO.puts("ACK not received; waiting for FIN+PSH+ACK directly...")
-
-        case wait_segment(sock, @fin_psh_ack, flow, short_fin_deadline) do
-          {:ok, finpkt} ->
-            IO.puts("FIN+PSH+ACK received: seq=#{finpkt.seq}")
-            ack = finpkt.seq + byte_size(finpkt.payload)
-            send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack)
+          {:error, reason} ->
+            IO.puts("FIN wait error: #{inspect(reason)} - closing socket")
             :socket.close(sock)
             :ok
-
-          {:error, _} ->
-            case wait_segment(sock, @fin_ack, flow, short_fin_deadline) do
-              {:ok, finpkt} ->
-                IO.puts("FIN+ACK received: seq=#{finpkt.seq}")
-                ack = finpkt.seq + 1
-                send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack)
-                :socket.close(sock)
-                :ok
-
-              {:error, reason} ->
-                IO.puts("FIN wait error: #{inspect(reason)} - closing socket")
-                :socket.close(sock)
-                :ok
-            end
         end
+
+      {:ok, finpkt, flags} when (flags &&& @fin) != 0 ->
+        # 先に FIN 系が来た → ACK を返して終了（ACK 待ちは省略可能）
+        ack_num = if (flags &&& @psh) != 0, do: finpkt.seq + byte_size(finpkt.payload), else: finpkt.seq + 1
+        send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack_num)
+        :socket.close(sock)
+        :ok
+
+      {:error, reason} ->
+        IO.puts("ACK/FIN wait error: #{inspect(reason)} - closing socket")
+        :socket.close(sock)
+        :ok
+    end
+  end
+
+  # 指定したフラグのいずれかに一致するセグメントが来るまで待つ。戻り値: {:ok, pkt, matched_flags} | {:error, reason}
+  defp wait_segment_one_of(sock, acceptable_flags, {src_ip, sp, dst_ip, dp} = flow, deadline_ms) do
+    now = System.monotonic_time(:millisecond)
+    if now >= deadline_ms do
+      {:error, :timeout}
+    else
+      :socket.recv(sock)
+      |> case do
+        {:ok, bin} ->
+          bin
+          |> Ether.Ipv4.parse()
+          |> case do
+            {:ok, {^dst_ip, ^src_ip, _proto, tcp_bin}} ->
+              tcp_bin
+              |> parse_tcp()
+              |> case do
+                %{sp: spv, dp: dpv, flags: fl, payload: _payload} = pkt ->
+                  if spv == dp and dpv == sp and (fl &&& @rst) == @rst do
+                    IO.puts("TCP #{spv}->#{dpv} flags=0x#{Integer.to_string(fl, 16)} - RST received: connection reset")
+                    {:error, :connection_reset}
+                  else
+                    if spv == dp and dpv == sp and fl in acceptable_flags do
+                      IO.puts("TCP #{spv}->#{dpv} flags=0x#{Integer.to_string(fl, 16)}")
+                      {:ok, pkt, fl}
+                    else
+                      wait_segment_one_of(sock, acceptable_flags, flow, deadline_ms)
+                    end
+                  end
+                %{sp: ^dp, dp: ^sp} ->
+                  wait_segment_one_of(sock, acceptable_flags, flow, deadline_ms)
+                _ ->
+                  wait_segment_one_of(sock, acceptable_flags, flow, deadline_ms)
+              end
+            {:ok, _} ->
+              wait_segment_one_of(sock, acceptable_flags, flow, deadline_ms)
+            :error ->
+              {:error, :parse_error}
+          end
+        {:select, _} ->
+          {:error, :timeout}
+        other ->
+          {:error, other}
+      end
     end
   end
 
@@ -315,7 +352,11 @@ defmodule ExTCP do
     send_tcp(tx, src_ip, src_port, dst_ip, dst_port, seq, ack, @fin_ack, window)
   end
 
-  defp wait_segment(sock, flags, {src_ip, sp, dst_ip, dp} = flow, deadline_ms) do
+  @doc """
+  指定フラグの TCP セグメントが届くまで待つ。戻り値: `{:ok, pkt}` / `{:error, reason}`。
+  Req から ACK 待ちで `ExTCP.wait_segment(sock, 0x10, flow, deadline)` を呼ぶ（0x10 = ACK）。
+  """
+  def wait_segment(sock, flags, {src_ip, sp, dst_ip, dp} = flow, deadline_ms) do
     now = System.monotonic_time(:millisecond)
 
     if now >= deadline_ms do
