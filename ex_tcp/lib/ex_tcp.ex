@@ -65,23 +65,6 @@ defmodule ExTCP do
   end
 
   @doc """
-  ストリームソケットで TCP 接続し、`ExTCP.loop/1` で使えるソケットを返す。
-
-  `host` は文字列（例: `"127.0.0.1"`）または `{a, b, c, d}` のタプル。
-  ソケットはアクティブモードで、データは `{:tcp, sock, data}` / `{:tcp_closed, sock}` で届く。
-
-  ## Example
-
-      {:ok, sock} = ExTCP.connect_stream("127.0.0.1", 40001)
-      ExTCP.loop(%ExTCP.TcpState{socket: sock, phase: :status, parse_fn: &parse/1})
-  """
-  def connect_stream(host, port, opts \\ []) do
-    host_connect = if is_binary(host), do: String.to_charlist(host), else: host
-    default_opts = [active: true, mode: :binary]
-    :gen_tcp.connect(host_connect, port, Keyword.merge(default_opts, opts))
-  end
-
-  @doc """
   Raw ソケットで 3 way handshake のみ行い、送信に必要な情報を返す。
   `send_psh_ack` でリクエスト送信後、`wait_segment(sock, 0x10, flow, deadline)` → `receive_all_response_packets` → `close_connection` で受信・クローズする。
   """
