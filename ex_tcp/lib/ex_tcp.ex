@@ -68,8 +68,13 @@ defmodule ExTCP do
   @doc """
   Raw ソケットで 3 way handshake のみ行い、送信に必要な情報を返す。
   `send_psh_ack` でリクエスト送信後、`wait_segment(sock, 0x10, flow, deadline)` → `receive_all_response_packets` → `close_connection` で受信・クローズする。
+
+  ## Options
+    * `:src_ip` - 送信元 IP（デフォルト: @ip）
+    * `:src_port` - 送信元ポート（デフォルト: @src_port）
+    * `:timeout_ms` - タイムアウトミリ秒（デフォルト: 100_000）
   """
-  def connect_raw(dst_ip, dst_port, opts \\ []) do
+  def connect(dst_ip, dst_port, opts \\ []) do
     src_ip = Keyword.get(opts, :src_ip, @ip)
     src_port = Keyword.get(opts, :src_port, @src_port)
     timeout_ms = Keyword.get(opts, :timeout_ms, 100_000)
@@ -94,21 +99,6 @@ defmodule ExTCP do
         :socket.close(sock)
         {:error, reason}
     end
-  end
-
-  @doc """
-  Raw ソケットで 3 way handshake のみ行い、connect_raw の結果をそのまま返す。
-  送信・受信・クローズは呼び出し側で send_psh_ack / wait_segment / receive_all_response_packets / close_connection を組み合わせて行う。
-  """
-  def connect(
-        dst_ip \\ @ip,
-        dst_port \\ @dst_port,
-        src_ip \\ @ip,
-        src_port \\ @src_port,
-        timeout_ms \\ 100_000
-      ) do
-    opts = [src_ip: src_ip, src_port: src_port, timeout_ms: timeout_ms]
-    connect_raw(dst_ip, dst_port, opts)
   end
 
   @doc """
