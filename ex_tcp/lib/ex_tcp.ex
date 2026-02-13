@@ -29,29 +29,38 @@ defmodule ExTCP do
   @urg 0x20
 
   @doc """
-  Socket の受信ループ。`connect_stream/3` で得たソケットを `%ExTCP.TcpState{}` に渡して呼び出す。
-
-  受信メッセージ: `{:tcp, sock, data}` / `{:tcp_closed, sock}`（gen_tcp アクティブモード）
-
-  ## Example
-
-      {:ok, sock} = ExTCP.connect_stream("127.0.0.1", 40001)
-      ExTCP.loop(%ExTCP.TcpState{socket: sock, phase: :status, parse_fn: &parse/1})
+  Raw ソケット用の受信ループ。セグメントを 1 つ読むたびに payload を buffer に足し、parse_fn を都度呼ぶ。
+  phase == :done で `{:ok, state.body, final_ack}` を返す。クローズは呼び出し側で close_connection を呼ぶ。
   """
-  def loop(%ExTCP.TcpState{} = state) do
-    receive do
-      {:tcp, _sock, data} ->
-        state = on_data(data, state)
+  def handle_receive(sock, {src_ip, src_port, dst_ip, dst_port} = flow, deadline_ms, my_seq, server_seq, state) do
+    case wait_segment_one_of(sock, [@psh_ack, @fin_psh_ack], flow, deadline_ms) do
+      {:ok, pkt, recv_flags} ->
+        new_server_seq = pkt.seq + byte_size(pkt.payload)
+        send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, new_server_seq)
+        state_after = on_data(pkt.payload, state)
 
-        if state.phase == :done do
-          :gen_tcp.close(state.socket)
-          {:ok, state.body}
+        if state_after.phase == :done do
+          {:ok, state_after.body, new_server_seq}
         else
-          loop(state)
+          if (recv_flags &&& @fin) != 0 do
+            {:ok, state_after.body, new_server_seq}
+          else
+            handle_receive(sock, flow, deadline_ms, my_seq, new_server_seq, state_after)
+          end
         end
 
-      {:tcp_closed, _sock} ->
-        {:ok, state.body}
+      {:error, _} ->
+        fin_deadline = System.monotonic_time(:millisecond) + 2000
+        case wait_segment(sock, @fin_psh_ack, flow, fin_deadline) do
+          {:ok, pkt} ->
+            new_server_seq = pkt.seq + byte_size(pkt.payload)
+            send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, new_server_seq)
+            state_after = on_data(pkt.payload, state)
+            {:ok, state_after.body, new_server_seq}
+
+          {:error, _} ->
+            {:ok, state.body, server_seq}
+        end
     end
   end
 
@@ -192,6 +201,54 @@ defmodule ExTCP do
         :socket.close(sock)
         :ok
     end
+  end
+
+  @doc """
+  スキームに応じたデフォルトポートを返す。`"https"` のとき 443、それ以外は 80。
+  """
+  def default_port("https"), do: 443
+  def default_port(_), do: 80
+
+  @doc """
+  ホスト名を IPv4 アドレスに解決する。
+  - `host` は binary または charlist
+  - 成功: `{:ok, {a, b, c, d}}`
+  - 失敗: `{:error, :nxdomain}`
+  """
+  def resolve_host(host) when is_binary(host), do: resolve_host(String.to_charlist(host))
+  def resolve_host(host) when is_list(host) do
+    case :inet.getaddr(host, :inet) do
+      {:ok, {a, b, c, d}} -> {:ok, {a, b, c, d}}
+      {:error, _} -> {:error, :nxdomain}
+    end
+  end
+
+  @doc """
+  HTTP/1.1 リクエストバイナリを組み立てる。
+  - `method` - アトムまたは文字列（例: :get, "GET"）
+  - `path` - パス（nil のとき "/"）
+  - `query` - クエリ文字列（nil 可）
+  - `host` - Host ヘッダ用ホスト名
+  - `port` - ポート（nil のとき scheme から default_port を使用）
+  - `scheme` - "https" | "http" など（port 省略時と Host の :port 表示判定に使用）
+  - `headers_list` - [{key, value}, ...] のリスト
+  - `body` - binary または iodata
+  """
+  def build_http_request(method, path, query, host, port, scheme, headers_list, body) do
+    path = path || "/"
+    path_and_query = if query, do: path <> "?" <> query, else: path
+    method_str = method |> to_string() |> String.upcase()
+    request_line = "#{method_str} #{path_and_query} HTTP/1.1\r\n"
+    actual_port = port || default_port(scheme)
+    port_suffix = if actual_port != default_port(scheme), do: ":" <> to_string(actual_port), else: ""
+    host_header = "Host: #{host}#{port_suffix}\r\n"
+    headers_str =
+      headers_list
+      |> Enum.map(fn {k, v} -> "#{k}: #{v}\r\n" end)
+      |> Enum.join()
+    body_bin = if is_binary(body), do: body, else: IO.iodata_to_binary(body)
+    packet = [request_line, host_header, headers_str, "\r\n", body_bin]
+    IO.iodata_to_binary(packet)
   end
 
   # 指定したフラグのいずれかに一致するセグメントが来るまで待つ。戻り値: {:ok, pkt, matched_flags} | {:error, reason}
@@ -371,7 +428,6 @@ defmodule ExTCP do
       {:error, :timeout}
     else
       # 1回のrecvに残り時間をそのまま渡す（select発生でもスピンしにくくする）
-
       :socket.recv(sock)
       |> case do
         {:ok, bin} ->
