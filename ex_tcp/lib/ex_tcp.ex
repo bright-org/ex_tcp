@@ -32,7 +32,14 @@ defmodule ExTCP do
   Raw ソケット用の受信ループ。セグメントを 1 つ読むたびに payload を buffer に足し、parse_fn を都度呼ぶ。
   phase == :done で `{:ok, state.body, final_ack}` を返す。クローズは呼び出し側で close_connection を呼ぶ。
   """
-  def handle_receive(sock, {src_ip, src_port, dst_ip, dst_port} = flow, deadline_ms, my_seq, server_seq, state) do
+  def handle_receive(
+        sock,
+        {src_ip, src_port, dst_ip, dst_port} = flow,
+        deadline_ms,
+        my_seq,
+        server_seq,
+        state
+      ) do
     case wait_segment_one_of(sock, [@psh_ack, @fin_psh_ack], flow, deadline_ms) do
       {:ok, pkt, recv_flags} ->
         new_server_seq = pkt.seq + byte_size(pkt.payload)
@@ -50,27 +57,18 @@ defmodule ExTCP do
         end
 
       {:error, _} ->
-        fin_deadline = System.monotonic_time(:millisecond) + 2000
-        case wait_segment(sock, @fin_psh_ack, flow, fin_deadline) do
-          {:ok, pkt} ->
-            new_server_seq = pkt.seq + byte_size(pkt.payload)
-            send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, new_server_seq)
-            state_after = on_data(pkt.payload, state)
-            {:ok, state_after.body, new_server_seq}
-
-          {:error, _} ->
-            {:ok, state.body, server_seq}
-        end
+        send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, server_seq)
+        {:error, "想定外のエラーでfin_psh_ackが返ってきた", server_seq}
     end
   end
 
-  def on_data(data, %{parse_fn: parse_fn} = state) do
+  defp on_data(data, %{parse_fn: parse_fn} = state) do
     state
     |> append_buffer(data)
     |> parse_fn.()
   end
 
-  def append_buffer(state, data) do
+  defp append_buffer(state, data) do
     %{state | buffer: state.buffer <> IO.iodata_to_binary(data)}
   end
 
@@ -216,6 +214,7 @@ defmodule ExTCP do
   - 失敗: `{:error, :nxdomain}`
   """
   def resolve_host(host) when is_binary(host), do: resolve_host(String.to_charlist(host))
+
   def resolve_host(host) when is_list(host) do
     case :inet.getaddr(host, :inet) do
       {:ok, {a, b, c, d}} -> {:ok, {a, b, c, d}}
@@ -240,12 +239,17 @@ defmodule ExTCP do
     method_str = method |> to_string() |> String.upcase()
     request_line = "#{method_str} #{path_and_query} HTTP/1.1\r\n"
     actual_port = port || default_port(scheme)
-    port_suffix = if actual_port != default_port(scheme), do: ":" <> to_string(actual_port), else: ""
+
+    port_suffix =
+      if actual_port != default_port(scheme), do: ":" <> to_string(actual_port), else: ""
+
     host_header = "Host: #{host}#{port_suffix}\r\n"
+
     headers_str =
       headers_list
       |> Enum.map(fn {k, v} -> "#{k}: #{v}\r\n" end)
       |> Enum.join()
+
     body_bin = if is_binary(body), do: body, else: IO.iodata_to_binary(body)
     packet = [request_line, host_header, headers_str, "\r\n", body_bin]
     IO.iodata_to_binary(packet)
