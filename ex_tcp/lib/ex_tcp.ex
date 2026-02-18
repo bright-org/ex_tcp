@@ -222,39 +222,6 @@ defmodule ExTCP do
     end
   end
 
-  @doc """
-  HTTP/1.1 リクエストバイナリを組み立てる。
-  - `method` - アトムまたは文字列（例: :get, "GET"）
-  - `path` - パス（nil のとき "/"）
-  - `query` - クエリ文字列（nil 可）
-  - `host` - Host ヘッダ用ホスト名
-  - `port` - ポート（nil のとき scheme から default_port を使用）
-  - `scheme` - "https" | "http" など（port 省略時と Host の :port 表示判定に使用）
-  - `headers_list` - [{key, value}, ...] のリスト
-  - `body` - binary または iodata
-  """
-  def build_http_request(method, path, query, host, port, scheme, headers_list, body) do
-    path = path || "/"
-    path_and_query = if query, do: path <> "?" <> query, else: path
-    method_str = method |> to_string() |> String.upcase()
-    request_line = "#{method_str} #{path_and_query} HTTP/1.1\r\n"
-    actual_port = port || default_port(scheme)
-
-    port_suffix =
-      if actual_port != default_port(scheme), do: ":" <> to_string(actual_port), else: ""
-
-    host_header = "Host: #{host}#{port_suffix}\r\n"
-
-    headers_str =
-      headers_list
-      |> Enum.map(fn {k, v} -> "#{k}: #{v}\r\n" end)
-      |> Enum.join()
-
-    body_bin = if is_binary(body), do: body, else: IO.iodata_to_binary(body)
-    packet = [request_line, host_header, headers_str, "\r\n", body_bin]
-    IO.iodata_to_binary(packet)
-  end
-
   # 指定したフラグのいずれかに一致するセグメントが来るまで待つ。戻り値: {:ok, pkt, matched_flags} | {:error, reason}
   defp wait_segment_one_of(sock, acceptable_flags, {src_ip, sp, dst_ip, dp} = flow, deadline_ms) do
     now = System.monotonic_time(:millisecond)
