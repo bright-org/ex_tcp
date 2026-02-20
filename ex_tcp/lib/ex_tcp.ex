@@ -30,30 +30,57 @@ defmodule ExTCP do
 
   @doc """
   Raw ソケット用の受信ループ。セグメントを 1 つ読むたびに payload を buffer に足し、parse_fn を都度呼ぶ。
-  phase == :done で `{:ok, state.body, final_ack}` を返す。クローズは呼び出し側で close_connection を呼ぶ。
+  parse_fn が `{:done, body}` を返すか、FIN を受信したら `{:ok, body, final_ack}` で返す。クローズは呼び出し側で close_connection を呼ぶ。
+
+  終了判定はプロトコルに依存しない。ExTCP は `phase` 等を見ず、parse_fn の戻り値 `{:done, body}` か `{:cont, state}` のみで分岐する。
+
+  ソケットは `state.socket` から取り、引数で sock を重複して渡さない。
+
+  ## 引数
+
+  - `flow` - `{src_ip, src_port, dst_ip, dst_port}`
+  - `deadline_ms` - 期限（System.monotonic_time(:millisecond) 基準）
+  - `my_seq`, `server_seq` - シーケンス番号
+  - `state` - `t:ExTCP.StreamParseState.t/0`。必須:
+    - `socket` - raw ソケット（受信に使用。クローズは呼び出し側で行う）
+    - `parse_fn` - (state) -> `{:done, body}` | `{:cont, state}`。buffer 追加済みの state を受け、解析結果を返す。
+    その他は呼び出し側で初期化（例: `buffer: <<>>`）。
+
+  ## parse_fn の戻り値
+
+  - `{:done, body}` - 解析完了。`{:ok, body, new_server_seq}` を返してループ終了。
+  - `{:cont, state}` - 継続。次のセグメントを待つか、FIN のときは `{:ok, state.body, new_server_seq}` で返す。
+
+  ## 初期 state の例
+
+      %ExTCP.StreamParseState{
+        socket: sock,
+        buffer: <<>>,
+        parse_fn: &MyModule.parse_response/1
+      }
   """
   def handle_receive(
-        sock,
         {src_ip, src_port, dst_ip, dst_port} = flow,
         deadline_ms,
         my_seq,
         server_seq,
-        state
+        %{socket: sock} = state
       ) do
     case wait_segment_one_of(sock, [@psh_ack, @fin_psh_ack], flow, deadline_ms) do
       {:ok, pkt, recv_flags} ->
         new_server_seq = pkt.seq + byte_size(pkt.payload)
         send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, new_server_seq)
-        state_after = on_data(pkt.payload, state)
 
-        if state_after.phase == :done do
-          {:ok, state_after.body, new_server_seq}
-        else
-          if (recv_flags &&& @fin) != 0 do
-            {:ok, state_after.body, new_server_seq}
-          else
-            handle_receive(sock, flow, deadline_ms, my_seq, new_server_seq, state_after)
-          end
+        case on_data(pkt.payload, state) do
+          {:done, body} ->
+            {:ok, body, new_server_seq}
+
+          {:cont, state_after} ->
+            if (recv_flags &&& @fin) != 0 do
+              {:ok, state_after.body, new_server_seq}
+            else
+              handle_receive(flow, deadline_ms, my_seq, new_server_seq, state_after)
+            end
         end
 
       {:error, _} ->
@@ -221,6 +248,18 @@ defmodule ExTCP do
       {:error, _} -> {:error, :nxdomain}
     end
   end
+
+  @doc """
+  HTTP/1.1 リクエストバイナリを組み立てる。
+  - `method` - アトムまたは文字列（例: :get, "GET"）
+  - `path` - パス（nil のとき "/"）
+  - `query` - クエリ文字列（nil 可）
+  - `host` - Host ヘッダ用ホスト名
+  - `port` - ポート（nil のとき scheme から default_port を使用）
+  - `scheme` - "https" | "http" など（port 省略時と Host の :port 表示判定に使用）
+  - `headers_list` - [{key, value}, ...] のリスト
+  - `body` - binary または iodata
+  """
 
   # 指定したフラグのいずれかに一致するセグメントが来るまで待つ。戻り値: {:ok, pkt, matched_flags} | {:error, reason}
   defp wait_segment_one_of(sock, acceptable_flags, {src_ip, sp, dst_ip, dp} = flow, deadline_ms) do
