@@ -249,18 +249,6 @@ defmodule ExTCP do
     end
   end
 
-  @doc """
-  HTTP/1.1 リクエストバイナリを組み立てる。
-  - `method` - アトムまたは文字列（例: :get, "GET"）
-  - `path` - パス（nil のとき "/"）
-  - `query` - クエリ文字列（nil 可）
-  - `host` - Host ヘッダ用ホスト名
-  - `port` - ポート（nil のとき scheme から default_port を使用）
-  - `scheme` - "https" | "http" など（port 省略時と Host の :port 表示判定に使用）
-  - `headers_list` - [{key, value}, ...] のリスト
-  - `body` - binary または iodata
-  """
-
   # 指定したフラグのいずれかに一致するセグメントが来るまで待つ。戻り値: {:ok, pkt, matched_flags} | {:error, reason}
   defp wait_segment_one_of(sock, acceptable_flags, {src_ip, sp, dst_ip, dp} = flow, deadline_ms) do
     now = System.monotonic_time(:millisecond)
