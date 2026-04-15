@@ -1,5 +1,5 @@
-defmodule Ether.Transmitter do
-  alias Ether.{Frame, Client, Ipv4, TCP}
+defmodule ExTCP.Transmitter do
+  alias ExTCP.{Frame, Client, Ipv4, TCP}
 
   @tap0 {10, 0, 0, 1}
   @tap0_port 12345
@@ -22,8 +22,8 @@ defmodule Ether.Transmitter do
   end
 
   defp hoge(ipv4_payload) do
-    dst_mac = Ether.Utils.mac_bin("ff:ff:ff:ff:ff:ff")   # 宛先（ARP未実装なので一旦broadcast）
-    src_mac = Ether.Utils.mac_bin("76:bf:c9:f8:4b:31")   # 自ノードのMAC
+    dst_mac = ExTCP.Utils.mac_bin("ff:ff:ff:ff:ff:ff")   # 宛先（ARP未実装なので一旦broadcast）
+    src_mac = ExTCP.Utils.mac_bin("76:bf:c9:f8:4b:31")   # 自ノードのMAC
     eth_type = <<0x08, 0x00>>                            # IPv4 (EtherType)
 
     dst_mac <> src_mac <> eth_type <> ipv4_payload

@@ -1,6 +1,6 @@
-defmodule Ether.TCP do
+defmodule ExTCP.TCP do
   import Bitwise
-  alias Ether.{Ipv4, Utils}
+  alias ExTCP.{Ipv4, Utils}
 
   @ipproto_tcp 6
 

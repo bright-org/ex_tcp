@@ -11,9 +11,9 @@ Mix.install([
 Open an exec [host](./host.livemd).
 
 ```elixir
-Ether.Client.start_link([])
+ExTCP.Client.start_link([])
 ```
 
 ```elixir
-Ether.Client.send_frame "HELLO\n"
+ExTCP.Client.send_frame "HELLO\n"
 ```

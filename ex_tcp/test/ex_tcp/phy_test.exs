@@ -1,8 +1,8 @@
-defmodule Ether.PHYTest do
+defmodule ExTCP.PHYTest do
   use ExUnit.Case, async: true
 
   use ExUnit.Case, async: true
-  alias Ether.PHY
+  alias ExTCP.PHY
 
   @tag :crc
   test "CRC32 known vector '123456789' == 0xCBF43926" do
@@ -20,10 +20,10 @@ defmodule Ether.PHYTest do
 
     l2 =
       expect
-      |> Ether.PHY.normalize()
+      |> ExTCP.PHY.normalize()
 
     crc = PHY.crc32_eth(l2)
-    bin = Ether.PHY.encapsulate(l2, preamble: true, fcs: true)
+    bin = ExTCP.PHY.encapsulate(l2, preamble: true, fcs: true)
 
     assert bin == expect
     assert binary_part(bin, byte_size(bin) - 4, 4) == <<crc::little-32>>

@@ -1,5 +1,5 @@
-defmodule Ether.Rx do
-  alias Ether.Frame
+defmodule ExTCP.Rx do
+  alias ExTCP.Frame
 
   @type_ipv4 0x0800
   @type_arp 0x0806
