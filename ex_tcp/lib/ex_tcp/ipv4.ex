@@ -1,8 +1,8 @@
-defmodule Ether.Ipv4 do
+defmodule ExTCP.Ipv4 do
   import Bitwise
-  alias Ether.Utils
+  alias ExTCP.Utils
 
-  alias Ether.{Ipv4, TCP}
+  alias ExTCP.{Ipv4, TCP}
   # defstruct src_ip
 
   require Logger

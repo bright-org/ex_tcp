@@ -9,5 +9,5 @@ Mix.install([
 ## Section
 
 ```elixir
-Ether.Host.start_link([])
+ExTCP.Host.start_link([])
 ```

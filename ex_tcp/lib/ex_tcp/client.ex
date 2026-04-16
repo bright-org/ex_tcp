@@ -1,8 +1,8 @@
-defmodule Ether.Client do
+defmodule ExTCP.Client do
   use GenServer
 
-  alias Ether.{Client, Ipv4, TCP}
-  alias Ether.Ethernet.Frame
+  alias ExTCP.{Client, Ipv4, TCP}
+  alias ExTCP.Ethernet.Frame
 
   @python "python3"
   @tap "tap0"
@@ -88,7 +88,7 @@ defmodule Ether.Client do
 
   # フレーム受信時処理
   def handle_info({port, {:data, data}}, %{port: port, snd_nxt: snd_nxt} = state) do
-    case Ether.reply(data, snd_nxt) do
+    case ExTCP.Ether.reply(data, snd_nxt) do
       nil ->
         IO.puts("[DO NOTHING]")
         {:noreply, state}

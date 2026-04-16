@@ -1,6 +1,6 @@
-defmodule Ether.Host do
+defmodule ExTCP.Host do
   use GenServer
-  alias Ether.{Frame, Tcp}
+  alias ExTCP.{Frame, Tcp}
 
   @python "python3"
   @tap "tap1"
@@ -38,7 +38,7 @@ defmodule Ether.Host do
   end
 
   def handle_info({port, {:data, data}}, %{port: port, iss: iss} = state) do
-    case Ether.reply(data, iss) do
+    case ExTCP.Ether.reply(data, iss) do
       nil ->
         IO.puts("[HOST DO NOTHING]")
         {:noreply, state}

@@ -1,4 +1,4 @@
-defmodule Ether.Ethernet.Frame do
+defmodule ExTCP.Ethernet.Frame do
   @preamble <<0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0xD5>>
 
   @ethertype_ipv4 0x0800
@@ -30,11 +30,11 @@ defmodule Ether.Ethernet.Frame do
           payload: binary()
         }
   @doc """
-  Ethernetフレームを解析し、`Ether.Ethernet`構造体を返す。
+  Ethernetフレームを解析し、`ExTCP.Ethernet`構造体を返す。
 
   ## 例
-      iex> Ether.Ethernet.parse!(<<0xff,0xff,0xff,0xff,0xff,0xff,0x00,0x11,0x22,0x33,0x44,0x55,0x08,0x00, "data">>)
-      %Ether.Ethernet{
+      iex> ExTCP.Ethernet.parse!(<<0xff,0xff,0xff,0xff,0xff,0xff,0x00,0x11,0x22,0x33,0x44,0x55,0x08,0x00, "data">>)
+      %ExTCP.Ethernet{
         dst: "ff:ff:ff:ff:ff:ff",
         src: "00:11:22:33:44:55",
         type: "0x800",
@@ -75,9 +75,9 @@ defmodule Ether.Ethernet.Frame do
 
   def build({dst_mac_str, src_mac_str}, packet, opts \\ []) do
 
-    dst_mac = Ether.Utils.mac_bin(dst_mac_str)
+    dst_mac = ExTCP.Utils.mac_bin(dst_mac_str)
     # 自ノードのMAC
-    src_mac = Ether.Utils.mac_bin(src_mac_str)
+    src_mac = ExTCP.Utils.mac_bin(src_mac_str)
     # IPv4 (EtherType)
     eth_type = <<0x08, 0x00>>
 
@@ -85,7 +85,7 @@ defmodule Ether.Ethernet.Frame do
 
     with_preamble? = Keyword.get(opts, :with_preamble, false)
     with_fcs? = Keyword.get(opts, :with_fcs, false)
-    base = if with_fcs?, do: base <> Ether.FCS.fcs_bytes(base), else: base
+    base = if with_fcs?, do: base <> ExTCP.FCS.fcs_bytes(base), else: base
     if with_preamble?, do: @preamble <> base, else: base
   end
 

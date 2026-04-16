@@ -1,5 +1,5 @@
-defmodule Ether do
-  alias Ether.{Ethernet.Frame, Ipv4, TCP}
+defmodule ExTCP.Ether do
+  alias ExTCP.{Ethernet.Frame, Ipv4, TCP}
 
   @tap0 {10, 0, 0, 1}
   @tap0_port 12345

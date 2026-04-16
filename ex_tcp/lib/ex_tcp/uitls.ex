@@ -1,4 +1,4 @@
-defmodule Ether.Utils do
+defmodule ExTCP.Utils do
   import Bitwise
 
   def mac_bin(str),

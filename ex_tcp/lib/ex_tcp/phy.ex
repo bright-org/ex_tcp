@@ -1,4 +1,4 @@
-defmodule Ether.PHY do
+defmodule ExTCP.PHY do
   @moduledoc "L1相当の前処理: preamble/SFD と FCS を剥がして L2 を渡す"
   @preamble <<0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55>>
   @sfd 0xD5
