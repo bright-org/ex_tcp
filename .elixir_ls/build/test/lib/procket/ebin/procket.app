@@ -1,0 +1,9 @@
+{application,procket,
+             [{description,"Low level socket operations"},
+              {applications,[kernel,stdlib]},
+              {registered,[]},
+              {vsn,"0.9.8"},
+              {licenses,["BSD-3"]},
+              {maintainers,["Michael Santos"]},
+              {links,[{"Github","https://github.com/msantos/procket"}]},
+              {modules,[bpf,packet,procket,procket_ioctl,procket_mktmp]}]}.

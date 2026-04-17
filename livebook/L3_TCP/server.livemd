@@ -17,4 +17,4 @@ IO.puts("[srv] recv: #{inspect(data)}")
 :gen_tcp.close(sock)
 ```
 
-ホストを起動したら、[クライアント](./clinent.livemd)の最後まで実行します。
+ホストを起動したら、[クライアント](./client.livemd)の最後まで実行します。

@@ -1,0 +1,13 @@
+{application,ex_tcp,
+             [{modules,['Elixir.ExTCP','Elixir.ExTCP.Client',
+                        'Elixir.ExTCP.Ether','Elixir.ExTCP.Ethernet.Frame',
+                        'Elixir.ExTCP.Ethernet.TCP','Elixir.ExTCP.Host',
+                        'Elixir.ExTCP.Ipv4','Elixir.ExTCP.PHY',
+                        'Elixir.ExTCP.Rx','Elixir.ExTCP.StreamParseState',
+                        'Elixir.ExTCP.TCP','Elixir.ExTCP.Transmitter',
+                        'Elixir.ExTCP.Utils','Elixir.FrameLoader']},
+              {optional_applications,[]},
+              {applications,[kernel,stdlib,elixir,logger,tunctl]},
+              {description,"ex_tcp"},
+              {registered,[]},
+              {vsn,"0.1.0"}]}.
