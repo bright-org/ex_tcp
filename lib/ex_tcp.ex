@@ -66,27 +66,39 @@ defmodule ExTCP do
         server_seq,
         %{socket: sock} = state
       ) do
-    case wait_segment_one_of(sock, [@psh_ack, @fin_psh_ack], flow, deadline_ms) do
+    case wait_segment_one_of(sock, [@ack, @psh_ack, @fin_psh_ack, @fin_ack, @fin], flow, deadline_ms) do
       {:ok, pkt, recv_flags} ->
-        new_server_seq = pkt.seq + byte_size(pkt.payload)
-        send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, new_server_seq)
+        payload_size = byte_size(pkt.payload)
 
-        case on_data(pkt.payload, state) do
-          {:done, body} ->
-            {:ok, body, new_server_seq}
+        # ACK-only segment with empty payload is not response body data.
+        if recv_flags == @ack and payload_size == 0 do
+          handle_receive(flow, deadline_ms, my_seq, server_seq, state)
+        else
+          new_server_seq = next_server_seq(pkt, recv_flags)
+          send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, new_server_seq)
 
-          {:cont, state_after} ->
-            if (recv_flags &&& @fin) != 0 do
-              {:ok, state_after.body, new_server_seq}
-            else
-              handle_receive(flow, deadline_ms, my_seq, new_server_seq, state_after)
-            end
+          case on_data(pkt.payload, state) do
+            {:done, body} ->
+              {:ok, body, new_server_seq}
+
+            {:cont, state_after} ->
+              if (recv_flags &&& @fin) != 0 do
+                {:ok, state_after.body, new_server_seq}
+              else
+                handle_receive(flow, deadline_ms, my_seq, new_server_seq, state_after)
+              end
+          end
         end
 
       {:error, _} ->
         send_ack(sock, src_ip, src_port, dst_ip, dst_port, my_seq, server_seq)
-        {:error, "想定外のエラーでfin_psh_ackが返ってきた", server_seq}
+        {:error, "unexpected receive timeout while waiting response segments", server_seq}
     end
+  end
+
+  defp next_server_seq(pkt, flags) do
+    fin_increment = if (flags &&& @fin) != 0, do: 1, else: 0
+    pkt.seq + byte_size(pkt.payload) + fin_increment
   end
 
   defp on_data(data, %{parse_fn: parse_fn} = state) do
@@ -192,23 +204,11 @@ defmodule ExTCP do
     # ACK(0x10) / FIN+PSH+ACK(0x19) / FIN+ACK(0x11) / FIN(0x01) のいずれか1つを受け取る（到着順でブロックしない）
     case wait_segment_one_of(sock, [@ack, @fin_psh_ack, @fin_ack, @fin], flow, short_fin_deadline) do
       {:ok, pkt, @ack} ->
-        # 先に ACK が来た → 続けて FIN 系を待つ
-        case wait_segment_one_of(sock, [@fin_psh_ack, @fin_ack, @fin], flow, short_fin_deadline) do
-          {:ok, finpkt, flags} ->
-            ack_num =
-              if (flags &&& @psh) != 0,
-                do: finpkt.seq + byte_size(finpkt.payload),
-                else: finpkt.seq + 1
-
-            send_ack(sock, src_ip, src_port, dst_ip, dst_port, seq, ack_num)
-            :socket.close(sock)
-            :ok
-
-          {:error, reason} ->
-            IO.puts("FIN wait error: #{inspect(reason)} - closing socket")
-            :socket.close(sock)
-            :ok
-        end
+        # ACK が来た時点で相手は FIN+ACK を受理済みなので即クローズする。
+        # ここで追加の FIN 待ちをすると、keep-alive 系の相手で2秒待ちが発生しやすい。
+        _ = pkt
+        :socket.close(sock)
+        :ok
 
       {:ok, finpkt, flags} when (flags &&& @fin) != 0 ->
         # 先に FIN 系が来た → ACK を返して終了（ACK 待ちは省略可能）
