@@ -1,0 +1,13 @@
+# Untitled notebook
+
+```elixir
+Mix.install([
+  {:ex_tcp, path: System.get_env("EX_TCP_ROOT")}
+])
+```
+
+## Section
+
+```elixir
+ExTCP.Host.start_link([])
+```

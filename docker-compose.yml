@@ -1,29 +1,37 @@
 services:
   fw:
-    image: debian:bookworm-slim
-    network_mode: host           # ← ホストの netns に効かせるため
-    cap_add:
-      - NET_ADMIN
+    image: debian:stable-slim
+    container_name: fw
+    privileged: true
     volumes:
-      - ./fw-entrypoint.sh:/fw-entrypoint.sh:ro
-    entrypoint: ["/fw-entrypoint.sh"]
-    environment:
-      SRC_PORT: "40000"
-      DST_PORT: "40001"
+      - ./setup_nic.sh:/usr/local/bin/setup_nic.sh:ro
+    command: ["/bin/sh", "-c", "apt-get update && apt-get install -y iproute2 && sh /usr/local/bin/setup_nic.sh && tail -f /dev/null"]
+    ports:
+      - "8080:8080"
     restart: unless-stopped
 
+
   ether-book:
-    image: ghcr.io/livebook-dev/livebook:latest
-    network_mode: host
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ether-book
+    # fw と同じネットワーク名前空間を共有
+    network_mode: "service:fw"
     environment:
       - LIVEBOOK_TOKEN_ENABLED=false
       - LIVEBOOK_HOME=/home/ex_tcp/livebook
       - LIVEBOOK_PORT=8080
+      - EX_TCP_ROOT=/home/ex_tcp
     volumes:
       - ./ex_tcp:/home/ex_tcp
-    # user: "${host_uid:-1000}:${host_gid:-1000}"
+    # Livebook を動かすユーザ（必要に応じて調整）
+    user: "${host_uid:-1000}:${host_gid:-1000}"
     working_dir: /home/ex_tcp/livebook
-    restart: unless-stopped
-
     depends_on:
-          - fw
+      - fw
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    restart: unless-stopped

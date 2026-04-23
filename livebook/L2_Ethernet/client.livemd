@@ -1,0 +1,19 @@
+# L2 Client
+
+```elixir
+Mix.install([
+  {:ex_tcp, path: System.get_env("EX_TCP_ROOT")}
+])
+```
+
+## Section
+
+Open an exec [host](./host.livemd).
+
+```elixir
+ExTCP.Client.start_link([])
+```
+
+```elixir
+ExTCP.Client.send_frame "HELLO\n"
+```

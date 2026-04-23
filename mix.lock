@@ -1,0 +1,4 @@
+%{
+  "procket": {:hex, :procket, "0.9.8", "03f22bd8c7407be758782cab9ed3bfc7e4b4514c7678b41b641267ba01d2c00a", [:rebar3], [], "hexpm", "09ba10a7da8bdaa4859e9aa821d75177dedeaa6c1b2685f3a572032d3798b3d4"},
+  "tunctl": {:git, "https://github.com/msantos/tunctl.git", "e669007abffd8b006b6fd29c7f9fcc68d40dc6d5", []},
+}
